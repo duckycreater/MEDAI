@@ -5,6 +5,9 @@ import { AnalysisResult, PatientIntake, TreatmentPlan, ROIAnnotation, MedicalCon
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const HF_MODEL = process.env.HF_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
+const HF_API_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
+const HF_API_KEY = process.env.HUGGINGFACE_API_KEY;
 const CUSTOM_API_URL = process.env.CUSTOM_API_URL || "https://unmalicious-tamra-charmlessly.ngrok-free.dev/infer";
 
 // Helper to clean AI JSON output which often includes markdown code blocks
@@ -83,7 +86,7 @@ export const analyzeImageWithGemini = async (file: File, base64Image: string, pr
 
     // Step C: Execute Gemini Vision Analysis
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', 
+      model: 'gemini-1.5-flash-latest', 
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/png', data: base64Image } },
@@ -102,30 +105,37 @@ export const analyzeImageWithGemini = async (file: File, base64Image: string, pr
   }
 };
 
-// Helper function for Groq API calls using fetch
-const callGroqApi = async (endpoint: string, body: any) => {
+// Helper function for Hugging Face API calls using fetch
+const callHFApi = async (prompt: string, parameters: any = {}) => {
   try {
-    const response = await fetch(`${GROQ_API_URL}/${endpoint}`, {
+    const response = await fetch(HF_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Authorization': `Bearer ${HF_API_KEY}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        inputs: prompt,
+        parameters: {
+          ...parameters,
+          return_full_text: false,
+        },
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`Groq API Error: ${response.status} ${response.statusText}`);
+      throw new Error(`HF API Error: ${response.status} ${response.statusText}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    return data[0]?.generated_text || '';
   } catch (error) {
-    console.error("Groq API Call Error:", error);
+    console.error("HF API Call Error:", error);
     throw error;
   }
 };
 
-// 2. CLINICAL REASONING: Integrated Groq (mixtral-8x7b-32768)
+// 2. CLINICAL REASONING: Integrated Hugging Face (Qwen2.5)
 export const consultClinicalAgent = async (
   visualFindings: string,
   specializedData: any,
@@ -172,18 +182,14 @@ export const consultClinicalAgent = async (
     Vitals: BP ${patientData.vitals.bp}, HR ${patientData.vitals.hr}, SpO2 ${patientData.vitals.spO2}.
   `;
 
-  try {
-    // Groq Integration using fetch
-    const apiResponse = await callGroqApi('chat/completions', {
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      model: 'mixtral-8x7b-32768',
-      temperature: 0.1,
-    });
+  const fullPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${userPrompt}<|im_end|>\n<|im_start|>assistant\n`;
 
-    const responseText = apiResponse.choices[0].message?.content || '';
+  try {
+    // HF Integration
+    const responseText = await callHFApi(fullPrompt, { 
+      temperature: 0.1,
+      max_new_tokens: 2048,
+    });
 
     const cleanedText = cleanJsonOutput(responseText);
     let parsed;
@@ -192,7 +198,7 @@ export const consultClinicalAgent = async (
     } catch(e) {
         console.error("JSON Parse Error", e);
         console.log("Raw Response:", responseText);
-        throw new Error("Invalid AI response format from Groq Agent");
+        throw new Error("Invalid AI response format from HF Agent");
     }
     
     return {
@@ -202,12 +208,12 @@ export const consultClinicalAgent = async (
       rois: Array.isArray(parsed.rois) ? parsed.rois : []
     } as AnalysisResult;
   } catch (error) {
-    console.error("Diagnosis Error (Groq):", error);
+    console.error("Diagnosis Error (HF):", error);
     throw error;
   }
 };
 
-// 3. TREATMENT GENERATION: Integrated Groq
+// 3. TREATMENT GENERATION: Integrated Hugging Face (Qwen2.5)
 export const generateTreatmentPlan = async (
   diagnosis: string,
   patientData: PatientIntake,
@@ -252,19 +258,15 @@ export const generateTreatmentPlan = async (
     "followUp": "string"
   }`;
 
+  const userPrompt = `Diagnosis: ${diagnosis}. Patient Context: ${JSON.stringify(patientData)}`;
+
+  const fullPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${userPrompt}<|im_end|>\n<|im_start|>assistant\n`;
+
   try {
-    const userPrompt = `Diagnosis: ${diagnosis}. Patient Context: ${JSON.stringify(patientData)}`;
-
-    const apiResponse = await callGroqApi('chat/completions', {
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      model: 'mixtral-8x7b-32768',
-      temperature: 0.7, // Default temperature if not specified
+    const responseText = await callHFApi(fullPrompt, { 
+      temperature: 0.7,
+      max_new_tokens: 2048,
     });
-
-    const responseText = apiResponse.choices[0].message?.content || '';
 
     const cleanedText = cleanJsonOutput(responseText);
     let parsed;
@@ -273,7 +275,7 @@ export const generateTreatmentPlan = async (
     } catch(e) {
         console.error("JSON Parse Error in Treatment Plan", e);
         console.log("Raw Response:", responseText);
-        throw new Error("Invalid AI response format from Groq Agent");
+        throw new Error("Invalid AI response format from HF Agent");
     }
     
     // Defensive coding
@@ -297,7 +299,7 @@ export const generateTreatmentPlan = async (
       followUp: parsed.followUp || "Re-eval in 2 weeks"
     } as TreatmentPlan;
   } catch (error) {
-    console.error("Treatment Error (Groq):", error);
+    console.error("Treatment Error (HF):", error);
     throw error;
   }
 };
@@ -341,7 +343,7 @@ export const createMedicalChatSession = (initialContext: MedicalContext) => {
   `;
 
   return ai.chats.create({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-1.5-flash-latest',
     config: {
         systemInstruction: systemInstruction,
         temperature: 0.3
