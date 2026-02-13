@@ -1,13 +1,15 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { AnalysisResult, PatientIntake, TreatmentPlan, ROIAnnotation, MedicalContext } from "../types";
-
-// Puter.js global declaration
-declare const puter: any;
+import OpenAI from 'openai';
 
 // Keep Google GenAI for Vision (handles Blobs/Images natively and reliably)
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const CUSTOM_API_URL = "https://unmalicious-tamra-charmlessly.ngrok-free.dev/infer";
+const groq = new OpenAI({
+  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey: process.env.GROQ_API_KEY
+});
+const CUSTOM_API_URL = process.env.CUSTOM_API_URL
+
 
 // Helper to clean AI JSON output which often includes markdown code blocks
 const cleanJsonOutput = (text: string): string => {
@@ -104,7 +106,7 @@ export const analyzeImageWithGemini = async (file: File, base64Image: string, pr
   }
 };
 
-// 2. CLINICAL REASONING: Integrated Puter.js (gemini-3-pro-preview)
+// 2. CLINICAL REASONING: Integrated Groq (mixtral-8x7b-32768)
 export const consultClinicalAgent = async (
   visualFindings: string,
   specializedData: any,
@@ -152,25 +154,17 @@ export const consultClinicalAgent = async (
   `;
 
   try {
-    // Puter.js Integration
-    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
-    
-    // Using Puter's AI chat interface
-    const response = await puter.ai.chat(fullPrompt, { 
-        model: 'gemini-3-pro-preview',
-        temperature: 0.1
+    // Groq Integration
+    const response = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      model: 'mixtral-8x7b-32768',
+      temperature: 0.1,
     });
 
-    // Puter returns the response text directly or in a message object depending on the version.
-    // Handling both string and object return types for safety.
-    let responseText = "";
-    if (typeof response === 'string') {
-        responseText = response;
-    } else if (response && response.message && response.message.content) {
-        responseText = response.message.content;
-    } else {
-        responseText = JSON.stringify(response);
-    }
+    const responseText = response.choices[0].message?.content || '';
 
     const cleanedText = cleanJsonOutput(responseText);
     let parsed;
@@ -179,7 +173,7 @@ export const consultClinicalAgent = async (
     } catch(e) {
         console.error("JSON Parse Error", e);
         console.log("Raw Response:", responseText);
-        throw new Error("Invalid AI response format from Puter Agent");
+        throw new Error("Invalid AI response format from Groq Agent");
     }
     
     return {
@@ -189,12 +183,12 @@ export const consultClinicalAgent = async (
       rois: Array.isArray(parsed.rois) ? parsed.rois : []
     } as AnalysisResult;
   } catch (error) {
-    console.error("Diagnosis Error (Puter):", error);
+    console.error("Diagnosis Error (Groq):", error);
     throw error;
   }
 };
 
-// 3. TREATMENT GENERATION: Integrated Puter.js
+// 3. TREATMENT GENERATION: Integrated Groq
 export const generateTreatmentPlan = async (
   diagnosis: string,
   patientData: PatientIntake,
@@ -240,20 +234,18 @@ export const generateTreatmentPlan = async (
   }`;
 
   try {
-    const fullPrompt = `${systemPrompt}\n\nDiagnosis: ${diagnosis}. Patient Context: ${JSON.stringify(patientData)}`;
+    const userPrompt = `Diagnosis: ${diagnosis}. Patient Context: ${JSON.stringify(patientData)}`;
 
-    const response = await puter.ai.chat(fullPrompt, { 
-        model: 'gemini-3-pro-preview' 
+    const response = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      model: 'mixtral-8x7b-32768',
+      temperature: 0.7, // Default temperature if not specified
     });
 
-    let responseText = "";
-    if (typeof response === 'string') {
-        responseText = response;
-    } else if (response && response.message && response.message.content) {
-        responseText = response.message.content;
-    } else {
-        responseText = JSON.stringify(response);
-    }
+    const responseText = response.choices[0].message?.content || '';
 
     const cleanedText = cleanJsonOutput(responseText);
     let parsed;
@@ -262,7 +254,7 @@ export const generateTreatmentPlan = async (
     } catch(e) {
         console.error("JSON Parse Error in Treatment Plan", e);
         console.log("Raw Response:", responseText);
-        throw new Error("Invalid AI response format from Puter Agent");
+        throw new Error("Invalid AI response format from Groq Agent");
     }
     
     // Defensive coding
@@ -286,7 +278,7 @@ export const generateTreatmentPlan = async (
       followUp: parsed.followUp || "Re-eval in 2 weeks"
     } as TreatmentPlan;
   } catch (error) {
-    console.error("Treatment Error (Puter):", error);
+    console.error("Treatment Error (Groq):", error);
     throw error;
   }
 };
