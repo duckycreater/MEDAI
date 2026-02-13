@@ -1,8 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { AnalysisResult, PatientIntake, TreatmentPlan, ROIAnnotation, MedicalContext } from "../types";
 
-// Keep Google GenAI for Vision (handles Blobs/Images natively and reliably)
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Keep Google Generative AI for Vision (handles Blobs/Images natively and reliably)
+const genAI = new GoogleGenerativeAI(process.env.API_KEY);
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const HF_MODEL = process.env.HF_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
@@ -85,20 +85,25 @@ export const analyzeImageWithGemini = async (file: File, base64Image: string, pr
     `;
 
     // Step C: Execute Gemini Vision Analysis
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash-latest', 
-      contents: {
-        parts: [
-          { inlineData: { mimeType: 'image/png', data: base64Image } },
-          { text: hybridPrompt }
-        ]
-      },
-      config: { 
-        temperature: 0.2, 
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash-latest',
+      generationConfig: {
+        temperature: 0.2,
         topK: 40
       }
     });
-    return response.text || "";
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: 'image/png',
+          data: base64Image
+        }
+      },
+      {
+        text: hybridPrompt
+      }
+    ]);
+    return result.response.text() || "";
   } catch (error) {
     console.error("Gemini Vision Error:", error);
     return "Visual analysis currently unavailable due to network constraints.";
@@ -342,11 +347,13 @@ export const createMedicalChatSession = (initialContext: MedicalContext) => {
   - Be helpful but concise (doctors are busy).
   `;
 
-  return ai.chats.create({
+  const model = genAI.getGenerativeModel({
     model: 'gemini-1.5-flash-latest',
-    config: {
-        systemInstruction: systemInstruction,
-        temperature: 0.3
-    }
+    generationConfig: {
+      temperature: 0.3
+    },
+    systemInstruction: systemInstruction
   });
+
+  return model.startChat();
 };
