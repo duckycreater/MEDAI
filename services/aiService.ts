@@ -1,15 +1,15 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { AnalysisResult, PatientIntake, TreatmentPlan, ROIAnnotation, MedicalContext } from "../types";
 
 // Keep Google Generative AI for Vision (handles Blobs/Images natively and reliably)
-const genAI = new GoogleGenerativeAI(process.env.API_KEY);
+const genAI = new GoogleGenAI(import.meta.env.VITE_GEMINI_API_KEY);
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 const GROQ_MODEL = 'llama-3.1-70b-versatile';
-const HF_MODEL = process.env.HF_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
+const HF_MODEL = import.meta.env.VITE_HF_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
 const HF_API_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
-const HF_API_KEY = process.env.HUGGINGFACE_API_KEY;
-const CUSTOM_API_URL = process.env.CUSTOM_API_URL || "https://unmalicious-tamra-charmlessly.ngrok-free.dev/infer";
+const HF_API_KEY = import.meta.env.VITE_HF_API_KEY;
+const CUSTOM_API_URL = import.meta.env.VITE_CUSTOM_API_URL || "https://unmalicious-tamra-charmlessly.ngrok-free.dev/infer";
 
 // Helper to clean AI JSON output which often includes markdown code blocks
 const cleanJsonOutput = (text: string): string => {
