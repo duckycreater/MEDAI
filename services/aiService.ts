@@ -1,15 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { AnalysisResult, PatientIntake, TreatmentPlan, ROIAnnotation, MedicalContext } from "../types";
-import OpenAI from 'openai';
 
 // Keep Google GenAI for Vision (handles Blobs/Images natively and reliably)
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const groq = new OpenAI({
-  baseURL: 'https://api.groq.com/openai/v1',
-  apiKey: process.env.GROQ_API_KEY
-});
-const CUSTOM_API_URL = process.env.CUSTOM_API_URL
-
+const GROQ_API_URL = 'https://api.groq.com/openai/v1';
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const CUSTOM_API_URL = process.env.CUSTOM_API_URL || "https://unmalicious-tamra-charmlessly.ngrok-free.dev/infer";
 
 // Helper to clean AI JSON output which often includes markdown code blocks
 const cleanJsonOutput = (text: string): string => {
@@ -106,6 +102,29 @@ export const analyzeImageWithGemini = async (file: File, base64Image: string, pr
   }
 };
 
+// Helper function for Groq API calls using fetch
+const callGroqApi = async (endpoint: string, body: any) => {
+  try {
+    const response = await fetch(`${GROQ_API_URL}/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Groq API Error: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Groq API Call Error:", error);
+    throw error;
+  }
+};
+
 // 2. CLINICAL REASONING: Integrated Groq (mixtral-8x7b-32768)
 export const consultClinicalAgent = async (
   visualFindings: string,
@@ -154,8 +173,8 @@ export const consultClinicalAgent = async (
   `;
 
   try {
-    // Groq Integration
-    const response = await groq.chat.completions.create({
+    // Groq Integration using fetch
+    const apiResponse = await callGroqApi('chat/completions', {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -164,7 +183,7 @@ export const consultClinicalAgent = async (
       temperature: 0.1,
     });
 
-    const responseText = response.choices[0].message?.content || '';
+    const responseText = apiResponse.choices[0].message?.content || '';
 
     const cleanedText = cleanJsonOutput(responseText);
     let parsed;
@@ -236,7 +255,7 @@ export const generateTreatmentPlan = async (
   try {
     const userPrompt = `Diagnosis: ${diagnosis}. Patient Context: ${JSON.stringify(patientData)}`;
 
-    const response = await groq.chat.completions.create({
+    const apiResponse = await callGroqApi('chat/completions', {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -245,7 +264,7 @@ export const generateTreatmentPlan = async (
       temperature: 0.7, // Default temperature if not specified
     });
 
-    const responseText = response.choices[0].message?.content || '';
+    const responseText = apiResponse.choices[0].message?.content || '';
 
     const cleanedText = cleanJsonOutput(responseText);
     let parsed;
