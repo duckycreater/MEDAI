@@ -5,6 +5,7 @@ import { AnalysisResult, PatientIntake, TreatmentPlan, ROIAnnotation, MedicalCon
 const genAI = new GoogleGenerativeAI(process.env.API_KEY);
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_MODEL = 'llama-3.1-70b-versatile';
 const HF_MODEL = process.env.HF_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
 const HF_API_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
 const HF_API_KEY = process.env.HUGGINGFACE_API_KEY;
@@ -140,7 +141,52 @@ const callHFApi = async (prompt: string, parameters: any = {}) => {
   }
 };
 
-// 2. CLINICAL REASONING: Integrated Hugging Face (Qwen2.5)
+// Helper function for Groq API calls (fallback)
+const callGroqApi = async (prompt: string, parameters: any = {}) => {
+  try {
+    const maxTokens = parameters.max_new_tokens || parameters.max_tokens || 2048;
+    const response = await fetch(`${GROQ_API_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: parameters.temperature || 0.1,
+        max_tokens: maxTokens,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Groq API Error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || '';
+  } catch (error) {
+    console.error("Groq API Call Error:", error);
+    throw error;
+  }
+};
+
+// Helper to call API with failover (HF first, then Groq)
+const callApiWithFailover = async (prompt: string, parameters: any = {}) => {
+  try {
+    return await callHFApi(prompt, parameters);
+  } catch (hfError) {
+    console.warn("HF failed, falling back to Groq:", hfError);
+    try {
+      return await callGroqApi(prompt, parameters);
+    } catch (groqError) {
+      console.error("Both HF and Groq failed:", groqError);
+      throw new Error("All API backends unavailable.");
+    }
+  }
+};
+
+// 2. CLINICAL REASONING: Integrated with Failover (HF -> Groq)
 export const consultClinicalAgent = async (
   visualFindings: string,
   specializedData: any,
@@ -190,8 +236,8 @@ export const consultClinicalAgent = async (
   const fullPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${userPrompt}<|im_end|>\n<|im_start|>assistant\n`;
 
   try {
-    // HF Integration
-    const responseText = await callHFApi(fullPrompt, { 
+    // API Call with Failover
+    const responseText = await callApiWithFailover(fullPrompt, { 
       temperature: 0.1,
       max_new_tokens: 2048,
     });
@@ -203,7 +249,7 @@ export const consultClinicalAgent = async (
     } catch(e) {
         console.error("JSON Parse Error", e);
         console.log("Raw Response:", responseText);
-        throw new Error("Invalid AI response format from HF Agent");
+        throw new Error("Invalid AI response format from Agent");
     }
     
     return {
@@ -213,12 +259,12 @@ export const consultClinicalAgent = async (
       rois: Array.isArray(parsed.rois) ? parsed.rois : []
     } as AnalysisResult;
   } catch (error) {
-    console.error("Diagnosis Error (HF):", error);
+    console.error("Diagnosis Error:", error);
     throw error;
   }
 };
 
-// 3. TREATMENT GENERATION: Integrated Hugging Face (Qwen2.5)
+// 3. TREATMENT GENERATION: Integrated with Failover (HF -> Groq)
 export const generateTreatmentPlan = async (
   diagnosis: string,
   patientData: PatientIntake,
@@ -268,7 +314,8 @@ export const generateTreatmentPlan = async (
   const fullPrompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${userPrompt}<|im_end|>\n<|im_start|>assistant\n`;
 
   try {
-    const responseText = await callHFApi(fullPrompt, { 
+    // API Call with Failover
+    const responseText = await callApiWithFailover(fullPrompt, { 
       temperature: 0.7,
       max_new_tokens: 2048,
     });
@@ -280,7 +327,7 @@ export const generateTreatmentPlan = async (
     } catch(e) {
         console.error("JSON Parse Error in Treatment Plan", e);
         console.log("Raw Response:", responseText);
-        throw new Error("Invalid AI response format from HF Agent");
+        throw new Error("Invalid AI response format from Agent");
     }
     
     // Defensive coding
@@ -304,7 +351,7 @@ export const generateTreatmentPlan = async (
       followUp: parsed.followUp || "Re-eval in 2 weeks"
     } as TreatmentPlan;
   } catch (error) {
-    console.error("Treatment Error (HF):", error);
+    console.error("Treatment Error:", error);
     throw error;
   }
 };
