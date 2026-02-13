@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { ChatMessage, MedicalContext } from '../types';
 import { createMedicalChatSession } from '../services/aiService';
-import { GenerateContentResponse } from '@google/genai';
+import { GenerateContentResponse } from '@google/generative-ai';
 
 interface MedicalChatbotProps {
   context: MedicalContext;
