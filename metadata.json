@@ -1,0 +1,7 @@
+{
+  "name": "MediDICOM AI",
+  "description": "A comprehensive medical imaging diagnosis support system using Multi-Modal Agents (Gemini & Groq). Features real-time analysis, longitudinal tracking, and explanation generation.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
