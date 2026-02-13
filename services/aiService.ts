@@ -55,7 +55,7 @@ export const callCustomMedicalAI = async (file: File): Promise<any> => {
   }
 };
 
-// 1. VISION ANALYSIS: Hybrid (Gemini 3 Pro + Custom API Data)
+// 1. VISION ANALYSIS: Hybrid (Gemini 1.5 Flash + Custom API Data)
 export const analyzeImageWithGemini = async (file: File, base64Image: string, prompt: string): Promise<string> => {
   try {
     // Step A: Get data from the specialized custom model
@@ -83,7 +83,7 @@ export const analyzeImageWithGemini = async (file: File, base64Image: string, pr
 
     // Step C: Execute Gemini Vision Analysis
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', 
+      model: 'gemini-1.5-flash', 
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/png', data: base64Image } },
@@ -341,7 +341,7 @@ export const createMedicalChatSession = (initialContext: MedicalContext) => {
   `;
 
   return ai.chats.create({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-1.5-flash',
     config: {
         systemInstruction: systemInstruction,
         temperature: 0.3
